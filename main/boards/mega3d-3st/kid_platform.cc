@@ -16,6 +16,7 @@
 #include "assets/lang_config.h"
 #include "board.h"
 #include "settings.h"
+#include "kid/esp_sounds.h"
 #include "parent_portal.h"
 
 #define TAG "KidPlatform"
@@ -113,25 +114,7 @@ bool KidPlatform::IsCharging() {
 }
 
 void KidPlatform::PlaySound(kid::Sound sound) {
-    auto& app = Application::GetInstance();
-    switch (sound) {
-        case kid::Sound::kTap:
-        case kid::Sound::kBack:
-            app.PlaySound(Lang::Sounds::OGG_POPUP);
-            break;
-        case kid::Sound::kWin:
-            app.PlaySound(Lang::Sounds::OGG_SUCCESS);
-            break;
-        case kid::Sound::kLose:
-        case kid::Sound::kAlarm:
-        case kid::Sound::kReminder:
-            app.PlaySound(Lang::Sounds::OGG_EXCLAMATION);
-            break;
-        default:
-            // Simon notes come with the game assets (Phase 3).
-            app.PlaySound(Lang::Sounds::OGG_POPUP);
-            break;
-    }
+    Application::GetInstance().PlaySound(kid::SoundOgg(sound));
 }
 
 void KidPlatform::StartChat() {
