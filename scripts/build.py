@@ -353,6 +353,24 @@ def _wake_word_sdkconfig_options(
         options.append("CONFIG_WAKE_WORD_DISABLED=y")
         return normalized, options, ["CONFIG_WAKE_WORD_DISABLED"]
 
+    # "custom:<english phrase>": recognise the phrase with the English
+    # MultiNet7 command model instead of a pre-trained WakeNet model.
+    if normalized.startswith("custom:"):
+        phrase = " ".join(wake_word.split(":", 1)[1].split()).lower()
+        if not re.fullmatch(r"[a-z]+( [a-z]+)*", phrase):
+            raise ValueError(f"Custom wake word must be English letters and spaces: {phrase!r}")
+        if target not in _AFE_WAKE_WORD_TARGETS:
+            raise ValueError(f"Custom wake words need an AFE target with PSRAM, not {target}")
+        display = phrase.title()
+        options.extend((
+            "CONFIG_USE_CUSTOM_WAKE_WORD=y",
+            f'CONFIG_CUSTOM_WAKE_WORD="{phrase}"',
+            f'CONFIG_CUSTOM_WAKE_WORD_DISPLAY="{display}"',
+            "CONFIG_SR_MN_EN_NONE=n",
+            "CONFIG_SR_MN_EN_MULTINET7_QUANT=y",
+        ))
+        return f"custom:{phrase}", options, ["CONFIG_USE_CUSTOM_WAKE_WORD", "CONFIG_SR_MN_EN_MULTINET7_QUANT"]
+
     if target not in _ESP_WAKE_WORD_TARGETS | _AFE_WAKE_WORD_TARGETS:
         raise ValueError(f"Wake-word selection is not supported for target {target}")
     if not _WAKE_WORD_MODEL_PATTERN.fullmatch(normalized):
