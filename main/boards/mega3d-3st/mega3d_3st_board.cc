@@ -165,6 +165,10 @@ private:
 
         display_ = new KidDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y,
                                   DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY, &kid_platform_);
+        // Touching the screen counts as activity, like pressing a button.
+        display_->on_touch = [this]() {
+            if (power_save_timer_) power_save_timer_->WakeUp();
+        };
     }
 
     void InitializeTouch() {
@@ -226,19 +230,12 @@ private:
             }
         });
 
+        // Holding a volume button behaves like a click: no jump to 100% or mute
+        // on a child's device.
         volume_up_button_.OnClick([this]() { ChangeVolume(10); });
-        volume_up_button_.OnLongPress([this]() {
-            power_save_timer_->WakeUp();
-            GetAudioCodec()->SetOutputVolume(100);
-            GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
-        });
-
+        volume_up_button_.OnLongPress([this]() { ChangeVolume(10); });
         volume_down_button_.OnClick([this]() { ChangeVolume(-10); });
-        volume_down_button_.OnLongPress([this]() {
-            power_save_timer_->WakeUp();
-            GetAudioCodec()->SetOutputVolume(0);
-            GetDisplay()->ShowNotification(Lang::Strings::MUTED);
-        });
+        volume_down_button_.OnLongPress([this]() { ChangeVolume(-10); });
     }
 
 protected:

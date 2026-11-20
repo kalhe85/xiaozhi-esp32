@@ -54,6 +54,7 @@ void KidDisplay::SetupUI() {
     kid::ui::Start(*platform_);  // loads the launcher
     chat_visible_ = false;
     lv_timer_create(OnStateTimer, kPollMs, this);
+    lv_timer_create(OnTouchTimer, 30, this);
     ESP_LOGI(TAG, "Kid launcher started");
 }
 
@@ -95,6 +96,22 @@ void KidDisplay::OnHomeClicked(lv_event_t* e) {
     auto& app = Application::GetInstance();
     if (ConversationActive(app.GetDeviceState())) app.ToggleChatState();  // end the conversation
     self->ShowLauncherLocked();
+}
+
+// Watches the pointer: wakes the display on touch and logs touch positions
+// at debug level (useful when checking the touch orientation).
+void KidDisplay::OnTouchTimer(lv_timer_t* timer) {
+    auto* self = static_cast<KidDisplay*>(lv_timer_get_user_data(timer));
+    for (lv_indev_t* indev = lv_indev_get_next(nullptr); indev; indev = lv_indev_get_next(indev)) {
+        if (lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) continue;
+        const bool pressed = lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED;
+        if (pressed == self->touch_down_) continue;
+        self->touch_down_ = pressed;
+        lv_point_t pt;
+        lv_indev_get_point(indev, &pt);
+        ESP_LOGD("KidTouch", "%s x=%d y=%d", pressed ? "down" : "up", static_cast<int>(pt.x), static_cast<int>(pt.y));
+        if (pressed && self->on_touch) self->on_touch();
+    }
 }
 
 void KidDisplay::OnStateTimer(lv_timer_t* timer) {

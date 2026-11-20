@@ -59,10 +59,11 @@
 
 // Touch: CST816D on the shared I2C bus, no INT/RST lines (polled).
 #define TOUCH_I2C_ADDR           0x15
-// Raw touch coordinates are in the panel's native portrait frame; these map
-// them onto the landscape LVGL display. To be verified on hardware.
-#define TOUCH_SWAP_XY            true
+// The CST816D already reports landscape coordinates matching the display
+// (x 0..295, y 0..239); verified with logged touches on 2026-11-19 and the
+// stock firmware's touch config (x_max 296, y_max 240, no swap/mirror).
+#define TOUCH_SWAP_XY            false
 #define TOUCH_MIRROR_X           false
-#define TOUCH_MIRROR_Y           true
+#define TOUCH_MIRROR_Y           false
 
 #endif  // _BOARD_CONFIG_H_

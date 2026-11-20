@@ -9,6 +9,8 @@
 
 #include <lvgl.h>
 
+#include <functional>
+
 #include "display/lcd_display.h"
 #include "kid/platform.h"
 
@@ -24,6 +26,10 @@ public:
     void ShowChatScreen();
     void ShowLauncher();
 
+    // Called (from the LVGL task) whenever the screen is touched, so the board
+    // can wake the dimmed display.
+    std::function<void()> on_touch;
+
 private:
     kid::Platform* platform_;
     lv_obj_t* chat_screen_ = nullptr;
@@ -31,7 +37,10 @@ private:
     bool chat_visible_ = false;
     int idle_ticks_ = 0;
 
+    bool touch_down_ = false;
+
     static void OnStateTimer(lv_timer_t* timer);
+    static void OnTouchTimer(lv_timer_t* timer);
     static void OnHomeClicked(lv_event_t* e);
     void PollDeviceState();
     void ShowChatScreenLocked();
