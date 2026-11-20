@@ -25,6 +25,9 @@
 #define AUDIO_CODEC_ES8311_ADDR  ES8311_CODEC_DEFAULT_ADDR   // 0x30
 #define AUDIO_CODEC_ES7210_ADDR  ES7210_CODEC_DEFAULT_ADDR   // 0x80
 
+// Child-safe speaker ceiling (volume keys and settings screen).
+#define KID_MAX_VOLUME               80
+
 // Buttons: main (power) button is active-high, volume buttons active-low.
 #define MAIN_BUTTON_GPIO         GPIO_NUM_1
 #define VOLUME_UP_BUTTON_GPIO    GPIO_NUM_40

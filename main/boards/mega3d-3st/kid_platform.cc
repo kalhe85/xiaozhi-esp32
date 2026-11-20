@@ -1,6 +1,7 @@
 #include "kid_platform.h"
 
 #include <ctime>
+#include <sys/time.h>
 
 #include <esp_log.h>
 #include <esp_sntp.h>
@@ -8,6 +9,7 @@
 #include <freertos/task.h>
 #include <nvs.h>
 #include <nvs_flash.h>
+#include <ssid_manager.h>
 #include <wifi_manager.h>
 
 #include "application.h"
@@ -45,6 +47,44 @@ bool ChatReadyState(DeviceState s) {
 int64_t KidPlatform::NowLocal() { return static_cast<int64_t>(time(nullptr)) + kUtcOffsetSeconds; }
 
 bool KidPlatform::ClockValid() { return time(nullptr) >= kMinValidTime; }
+
+void KidPlatform::SetClock(int64_t local_seconds) {
+    struct timeval tv = {};
+    tv.tv_sec = static_cast<time_t>(local_seconds - kUtcOffsetSeconds);
+    settimeofday(&tv, nullptr);
+    ESP_LOGI(TAG, "Clock set by hand");
+}
+
+std::string KidPlatform::WifiName() {
+    auto& wifi = WifiManager::GetInstance();
+    if (wifi.IsConnected()) return wifi.GetSsid();
+    const auto& saved = SsidManager::GetInstance().GetSsidList();
+    return saved.empty() ? "" : saved.front().ssid;
+}
+
+void KidPlatform::OpenWifiSetup() {
+    if (on_open_wifi_setup) on_open_wifi_setup();
+}
+
+int KidPlatform::GetVolume() {
+    auto* codec = Board::GetInstance().GetAudioCodec();
+    return codec ? codec->output_volume() : 0;
+}
+
+void KidPlatform::SetVolume(int volume) {
+    auto* codec = Board::GetInstance().GetAudioCodec();
+    if (codec) codec->SetOutputVolume(volume);
+}
+
+int KidPlatform::GetBrightness() {
+    auto* backlight = Board::GetInstance().GetBacklight();
+    return backlight ? backlight->brightness() : 0;
+}
+
+void KidPlatform::SetBrightness(int brightness) {
+    auto* backlight = Board::GetInstance().GetBacklight();
+    if (backlight) backlight->SetBrightness(static_cast<uint8_t>(brightness), true);
+}
 
 bool KidPlatform::IsOnline() {
     // "Online" for the kid UI means the chatbot is usable: Wi-Fi connected and

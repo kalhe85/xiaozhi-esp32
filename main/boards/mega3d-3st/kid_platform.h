@@ -15,7 +15,14 @@ public:
 
     int64_t NowLocal() override;
     bool ClockValid() override;
+    void SetClock(int64_t local_seconds) override;
     bool IsOnline() override;
+    std::string WifiName() override;
+    void OpenWifiSetup() override;
+    int GetVolume() override;
+    void SetVolume(int volume) override;
+    int GetBrightness() override;
+    void SetBrightness(int brightness) override;
     int BatteryPercent() override;
     bool IsCharging() override;
     void PlaySound(kid::Sound sound) override;
@@ -29,6 +36,8 @@ public:
     // Set by the display: shows the chat screen / brings the kid UI back.
     std::function<void()> on_start_chat;
     std::function<void()> on_interrupt;
+    // Set by the board: opens the Wi-Fi setup hotspot.
+    std::function<void()> on_open_wifi_setup;
 
     // Opens the kid NVS partition and starts the weather task. Call once,
     // after NVS flash init (board constructor).

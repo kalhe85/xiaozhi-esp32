@@ -33,6 +33,16 @@
 
 namespace {
 
+// Caps every volume change (buttons, settings, the chatbot's MCP tool) at a
+// child-safe level.
+class KidAudioCodec : public BoxAudioCodec {
+public:
+    using BoxAudioCodec::BoxAudioCodec;
+    void SetOutputVolume(int volume) override {
+        BoxAudioCodec::SetOutputVolume(volume > KID_MAX_VOLUME ? KID_MAX_VOLUME : volume);
+    }
+};
+
 // Vendor init sequence for the JD9853 panel, copied from the stock firmware.
 // The NV3023 driver only sends these commands; MADCTL (0x36) and display-on
 // are issued afterwards through esp_lcd_panel_* calls.
@@ -165,6 +175,7 @@ private:
 
         display_ = new KidDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y,
                                   DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY, &kid_platform_);
+        kid_platform_.on_open_wifi_setup = [this]() { OpenWifiSetup(); };
         // Touching the screen counts as activity, like pressing a button.
         display_->on_touch = [this]() {
             if (power_save_timer_) power_save_timer_->WakeUp();
@@ -213,7 +224,7 @@ private:
         auto codec = GetAudioCodec();
         int volume = codec->output_volume() + delta;
         if (volume < 0) volume = 0;
-        if (volume > 100) volume = 100;
+        if (volume > KID_MAX_VOLUME) volume = KID_MAX_VOLUME;
         codec->SetOutputVolume(volume);
         GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
     }
@@ -282,10 +293,16 @@ public:
     }
 
     AudioCodec* GetAudioCodec() override {
-        static BoxAudioCodec audio_codec(i2c_bus_, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
+        static KidAudioCodec audio_codec(i2c_bus_, AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
                                          AUDIO_I2S_GPIO_MCLK, AUDIO_I2S_GPIO_BCLK, AUDIO_I2S_GPIO_WS,
                                          AUDIO_I2S_GPIO_DOUT, AUDIO_I2S_GPIO_DIN, AUDIO_CODEC_PA_PIN,
                                          AUDIO_CODEC_ES8311_ADDR, AUDIO_CODEC_ES7210_ADDR, AUDIO_INPUT_REFERENCE);
+        // A volume saved earlier (stock firmware, old builds) may exceed the limit.
+        static bool volume_checked = false;
+        if (!volume_checked) {
+            volume_checked = true;
+            if (audio_codec.output_volume() > KID_MAX_VOLUME) audio_codec.SetOutputVolume(KID_MAX_VOLUME);
+        }
         return &audio_codec;
     }
 
