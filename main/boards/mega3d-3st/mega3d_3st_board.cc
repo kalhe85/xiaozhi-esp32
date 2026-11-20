@@ -8,9 +8,11 @@
 #include "button.h"
 #include "config.h"
 #include "mcp_server.h"
-#include "power_save_timer.h"
 #include "adc_battery_monitor.h"
 #include "assets/lang_config.h"
+#include "idle_manager.h"
+#include "kid/schedule.h"
+#include "kid/ui.h"
 #include "kid_display.h"
 #include "kid_platform.h"
 
@@ -28,6 +30,9 @@
 #include <wifi_manager.h>
 #include <cstdlib>
 #include <ctime>
+#include <driver/rtc_io.h>
+#include <driver/usb_serial_jtag.h>
+#include <esp_sleep.h>
 
 #define TAG "Mega3d3st"
 
@@ -88,8 +93,8 @@ private:
     // Only open the Wi-Fi setup hotspot when someone asked for it (settings
     // menu); otherwise the device stays offline on the launcher.
     bool wifi_setup_requested_ = false;
-    PowerSaveTimer* power_save_timer_ = nullptr;
     AdcBatteryMonitor* battery_monitor_ = nullptr;
+    IdleManager idle_;
 
     static bool IsCharging() {
         return gpio_get_level(BATTERY_CHARGING_PIN) == 0;
@@ -106,17 +111,81 @@ private:
         battery_monitor_ = new AdcBatteryMonitor(BATTERY_ADC_UNIT, BATTERY_ADC_CHANNEL, 100000, 100000, GPIO_NUM_NC);
     }
 
-    void InitializePowerSaveTimer() {
-        power_save_timer_ = new PowerSaveTimer(-1, 60, -1);
-        power_save_timer_->OnEnterSleepMode([this]() {
-            GetDisplay()->SetPowerSaveMode(true);
-            GetBacklight()->SetBrightness(10);
-        });
-        power_save_timer_->OnExitSleepMode([this]() {
-            GetDisplay()->SetPowerSaveMode(false);
-            GetBacklight()->RestoreBrightness();
-        });
-        power_save_timer_->SetEnabled(!IsCharging());
+    // Undo what EnterDeepSleep() set up, after waking from deep sleep.
+    static void ReleaseSleepHolds() {
+        gpio_deep_sleep_hold_dis();
+        gpio_hold_dis(AUDIO_CODEC_PA_PIN);
+        gpio_hold_dis(DISPLAY_BACKLIGHT_PIN);
+        rtc_gpio_deinit(MAIN_BUTTON_GPIO);  // back to a digital input for Button
+        const uint32_t causes = esp_sleep_get_wakeup_causes();
+        if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) ESP_LOGI(TAG, "Woke up by timer (alarm coming)");
+        if (causes & BIT(ESP_SLEEP_WAKEUP_EXT1)) ESP_LOGI(TAG, "Woke up by the power button");
+    }
+
+    static bool ChatIdleState() {
+        const DeviceState s = Application::GetInstance().GetDeviceState();
+        return s == kDeviceStateIdle || s == kDeviceStateStarting;
+    }
+
+    bool Busy() {
+        return !ChatIdleState() || kid::ui::AlarmBusy() || kid_platform_.ParentModeActive() || IsInWifiConfigMode();
+    }
+
+    bool MayDeepSleep() {
+        if (IsCharging()) return false;
+        if (usb_serial_jtag_is_connected()) return false;  // plugged into a computer
+        if (Busy()) return false;
+        if (!kid_platform_.ClockValid()) return true;  // no alarms can ring anyway
+        lvgl_port_lock(0);
+        const int64_t next = kid::ui::NextAlarmLocal();
+        lvgl_port_unlock();
+        return next == kid::kNever || next - kid_platform_.NowLocal() > 3 * 60;
+    }
+
+    void EnterDeepSleep() {
+        lvgl_port_lock(0);
+        kid::ui::PrepareForSleep();
+        const int64_t next = kid::ui::NextAlarmLocal();
+        lvgl_port_unlock();
+
+        // Quiet and dark while asleep: speaker amplifier and backlight held low.
+        GetBacklight()->SetBrightness(0);
+        if (display_) display_->SetScreenOff(true);
+        gpio_set_level(AUDIO_CODEC_PA_PIN, 0);
+        gpio_hold_en(AUDIO_CODEC_PA_PIN);
+        gpio_reset_pin(DISPLAY_BACKLIGHT_PIN);
+        gpio_set_direction(DISPLAY_BACKLIGHT_PIN, GPIO_MODE_OUTPUT);
+        gpio_set_level(DISPLAY_BACKLIGHT_PIN, DISPLAY_BACKLIGHT_OUTPUT_INVERT ? 1 : 0);
+        gpio_hold_en(DISPLAY_BACKLIGHT_PIN);
+        gpio_deep_sleep_hold_en();
+
+        // Wake up shortly before the next alarm/reminder (boot takes a few s).
+        if (next != kid::kNever && kid_platform_.ClockValid()) {
+            const int64_t wake_in = next - kid_platform_.NowLocal() - 45;
+            esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(wake_in > 1 ? wake_in : 1) * 1000000ULL);
+            ESP_LOGI(TAG, "Deep sleep; timer wake in %lld s", static_cast<long long>(wake_in));
+        } else {
+            ESP_LOGI(TAG, "Deep sleep; no alarm set");
+        }
+        // The power button (active high) wakes the device.
+        rtc_gpio_pullup_dis(MAIN_BUTTON_GPIO);
+        rtc_gpio_pulldown_en(MAIN_BUTTON_GPIO);
+        esp_sleep_enable_ext1_wakeup_io(1ULL << MAIN_BUTTON_GPIO, ESP_EXT1_WAKEUP_ANY_HIGH);
+        vTaskDelay(pdMS_TO_TICKS(100));  // let the log out
+        esp_deep_sleep_start();
+    }
+
+    void InitializeIdle() {
+        IdleManager::Hooks hooks;
+        hooks.set_brightness = [this](int level) { GetBacklight()->SetBrightness(static_cast<uint8_t>(level)); };
+        hooks.restore_brightness = [this]() { GetBacklight()->RestoreBrightness(); };
+        hooks.screen_off_changed = [this](bool off) {
+            if (display_) display_->SetScreenOff(off);
+        };
+        hooks.busy = [this]() { return Busy(); };
+        hooks.may_deep_sleep = [this]() { return MayDeepSleep(); };
+        hooks.enter_deep_sleep = [this]() { EnterDeepSleep(); };
+        idle_.Start(std::move(hooks));
     }
 
     void InitializeI2c() {
@@ -177,9 +246,7 @@ private:
                                   DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY, &kid_platform_);
         kid_platform_.on_open_wifi_setup = [this]() { OpenWifiSetup(); };
         // Touching the screen counts as activity, like pressing a button.
-        display_->on_touch = [this]() {
-            if (power_save_timer_) power_save_timer_->WakeUp();
-        };
+        display_->on_touch = [this]() { idle_.Activity(); };
     }
 
     void InitializeTouch() {
@@ -220,7 +287,7 @@ private:
     }
 
     void ChangeVolume(int delta) {
-        power_save_timer_->WakeUp();
+        if (idle_.Activity()) return;  // the first press only wakes the screen
         auto codec = GetAudioCodec();
         int volume = codec->output_volume() + delta;
         if (volume < 0) volume = 0;
@@ -232,7 +299,7 @@ private:
     void InitializeButtons() {
         // Main button: talk to the chatbot when it is reachable; otherwise go home.
         main_button_.OnClick([this]() {
-            power_save_timer_->WakeUp();
+            if (idle_.Activity()) return;  // the first press only wakes the screen
             if (kid_platform_.IsOnline()) {
                 display_->ShowChatScreen();
                 Application::GetInstance().ToggleChatState();
@@ -282,15 +349,16 @@ public:
         // time() is kept in UTC (CONFIG_SYSTEM_TIME_IS_UTC); local time is ICT.
         setenv("TZ", "ICT-7", 1);
         tzset();
+        ReleaseSleepHolds();
         kid_platform_.Initialize();
         InitializeBattery();
-        InitializePowerSaveTimer();
         InitializeI2c();
         InitializeSpi();
         InitializeDisplay();
         InitializeTouch();
         InitializeButtons();
         GetBacklight()->RestoreBrightness();
+        InitializeIdle();
     }
 
     AudioCodec* GetAudioCodec() override {
@@ -315,21 +383,14 @@ public:
     }
 
     bool GetBatteryLevel(int& level, bool& charging, bool& discharging) override {
-        static bool last_discharging = false;
         charging = IsCharging();
         discharging = !charging;
-        if (discharging != last_discharging) {
-            power_save_timer_->SetEnabled(discharging);
-            last_discharging = discharging;
-        }
         level = battery_monitor_->GetBatteryLevel();
         return true;
     }
 
     void SetPowerSaveLevel(PowerSaveLevel level) override {
-        if (level != PowerSaveLevel::LOW_POWER) {
-            power_save_timer_->WakeUp();
-        }
+        if (level != PowerSaveLevel::LOW_POWER) idle_.Activity();  // chat is active
         WifiBoard::SetPowerSaveLevel(level);
     }
 };

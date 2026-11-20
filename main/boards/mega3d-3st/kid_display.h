@@ -30,6 +30,10 @@ public:
     // can wake the dimmed display.
     std::function<void()> on_touch;
 
+    // Screen off: panel off plus a transparent shield on the top layer, so the
+    // tap that wakes the screen does not also press what is underneath.
+    void SetScreenOff(bool off);
+
 private:
     kid::Platform* platform_;
     lv_obj_t* chat_screen_ = nullptr;
@@ -38,6 +42,7 @@ private:
     int idle_ticks_ = 0;
 
     bool touch_down_ = false;
+    lv_obj_t* wake_shield_ = nullptr;
 
     static void OnStateTimer(lv_timer_t* timer);
     static void OnTouchTimer(lv_timer_t* timer);

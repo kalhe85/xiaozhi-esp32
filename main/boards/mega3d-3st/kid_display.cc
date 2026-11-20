@@ -1,6 +1,7 @@
 #include "kid_display.h"
 
 #include <esp_log.h>
+#include <esp_lcd_panel_ops.h>
 
 #include "application.h"
 #include "kid/ui.h"
@@ -68,6 +69,21 @@ void KidDisplay::SetTheme(Theme* theme) {
     if (chat_screen_ && previous != chat_screen_) lv_screen_load(chat_screen_);
     SpiLcdDisplay::SetTheme(theme);
     if (chat_screen_ && previous != chat_screen_) lv_screen_load(previous);
+}
+
+void KidDisplay::SetScreenOff(bool off) {
+    DisplayLockGuard lock(this);
+    if (panel_) esp_lcd_panel_disp_on_off(panel_, !off);
+    if (off && !wake_shield_) {
+        wake_shield_ = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(wake_shield_);
+        lv_obj_set_size(wake_shield_, LV_HOR_RES, LV_VER_RES);
+        lv_obj_add_flag(wake_shield_, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_move_background(wake_shield_);  // below an alarm overlay, if any
+    } else if (!off && wake_shield_) {
+        lv_obj_delete_async(wake_shield_);
+        wake_shield_ = nullptr;
+    }
 }
 
 void KidDisplay::ShowChatScreen() {

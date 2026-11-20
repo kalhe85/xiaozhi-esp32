@@ -269,8 +269,12 @@ bool KidPlatform::FetchWeather() {
 void KidPlatform::WeatherTask(void* arg) {
     auto* self = static_cast<KidPlatform*>(arg);
     int64_t last_try = 0;
+    int loops = 0;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(20 * 1000));
+        if (++loops % 15 == 1) {  // every 5 minutes
+            ESP_LOGI(TAG, "Battery %d%%, %s", self->BatteryPercent(), self->IsCharging() ? "charging" : "on battery");
+        }
         if (!self->HasWeatherLocation() || !self->IsOnline() || !self->ClockValid()) continue;
         kid::Weather w;
         const bool have = self->GetWeather(w);
