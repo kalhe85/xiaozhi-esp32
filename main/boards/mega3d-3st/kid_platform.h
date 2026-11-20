@@ -20,13 +20,15 @@ public:
     bool IsCharging() override;
     void PlaySound(kid::Sound sound) override;
     void StartChat() override;
+    void Interrupt() override;
     bool GetWeather(kid::Weather& out) override;
     bool HasWeatherLocation() override;
     bool LoadBlob(const char* key, std::string& out) override;
     bool SaveBlob(const char* key, const std::string& data) override;
 
-    // Set by the display: shows the chat screen.
+    // Set by the display: shows the chat screen / brings the kid UI back.
     std::function<void()> on_start_chat;
+    std::function<void()> on_interrupt;
 
     // Opens the kid NVS partition and starts the weather task. Call once,
     // after NVS flash init (board constructor).

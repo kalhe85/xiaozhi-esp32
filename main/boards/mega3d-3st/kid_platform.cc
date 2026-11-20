@@ -94,6 +94,16 @@ void KidPlatform::StartChat() {
     if (app.GetDeviceState() == kDeviceStateIdle) app.ToggleChatState();
 }
 
+void KidPlatform::Interrupt() {
+    // Alarms beat chat: end the conversation, then show the kid UI.
+    auto& app = Application::GetInstance();
+    const DeviceState s = app.GetDeviceState();
+    if (s == kDeviceStateConnecting || s == kDeviceStateListening || s == kDeviceStateSpeaking) {
+        app.ToggleChatState();
+    }
+    if (on_interrupt) on_interrupt();
+}
+
 void KidPlatform::Initialize() {
     esp_err_t err = nvs_flash_init_partition(kNvsPartition);
     if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {

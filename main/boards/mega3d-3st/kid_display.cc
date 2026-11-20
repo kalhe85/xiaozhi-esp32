@@ -50,6 +50,8 @@ void KidDisplay::SetupUI() {
 
     auto* kp = static_cast<KidPlatform*>(platform_);
     kp->on_start_chat = [this]() { ShowChatScreen(); };
+    // Runs in the LVGL task (from the ringer), lock already held.
+    kp->on_interrupt = [this]() { ShowLauncherLocked(); };
 
     kid::ui::Start(*platform_);  // loads the launcher
     chat_visible_ = false;
@@ -123,6 +125,7 @@ void KidDisplay::PollDeviceState() {
     static_cast<KidPlatform*>(platform_)->MaybeStartTimeSync();
 
     const DeviceState state = Application::GetInstance().GetDeviceState();
+    if (kid::ui::IsRinging()) return;  // the alarm overlay has priority
     if (ConversationActive(state) || state == kDeviceStateWifiConfiguring || state == kDeviceStateUpgrading) {
         ShowChatScreenLocked();  // e.g. the wake word was heard while on the launcher
         idle_ticks_ = 0;
