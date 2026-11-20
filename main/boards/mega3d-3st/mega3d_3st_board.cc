@@ -254,6 +254,7 @@ protected:
     // timed out. Stay on the launcher and keep trying in the background
     // instead of blocking the device on the setup hotspot.
     void StartWifiConfigMode() override {
+        if (kid_platform_.ParentModeActive()) return;  // our hotspot owns Wi-Fi
         if (wifi_setup_requested_) {
             WifiBoard::StartWifiConfigMode();
             return;

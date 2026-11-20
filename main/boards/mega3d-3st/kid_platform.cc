@@ -16,6 +16,7 @@
 #include "assets/lang_config.h"
 #include "board.h"
 #include "settings.h"
+#include "parent_portal.h"
 
 #define TAG "KidPlatform"
 
@@ -28,6 +29,8 @@ constexpr time_t kMinValidTime = 1735689600;
 constexpr const char* kNvsPartition = "kidnvs";
 constexpr const char* kNvsNamespace = "kidapp";
 constexpr const char* kWeatherKey = "weather";
+constexpr const char* kLatKey = "lat";
+constexpr const char* kLonKey = "lon";
 
 bool ChatReadyState(DeviceState s) {
     switch (s) {
@@ -43,6 +46,9 @@ bool ChatReadyState(DeviceState s) {
 }
 
 }  // namespace
+
+KidPlatform::KidPlatform() = default;
+KidPlatform::~KidPlatform() = default;
 
 int64_t KidPlatform::NowLocal() { return static_cast<int64_t>(time(nullptr)) + kUtcOffsetSeconds; }
 
@@ -157,10 +163,13 @@ void KidPlatform::Initialize() {
     storage_ok_ = err == ESP_OK;
     if (!storage_ok_) ESP_LOGE(TAG, "%s init failed: %s", kNvsPartition, esp_err_to_name(err));
 
-    // Location saved by the stock firmware (read only; values are not logged).
-    Settings location("weather", false);
-    latitude_ = location.GetString("latitude");
-    longitude_ = location.GetString("longitude");
+    // Location: set on the parent page (kidnvs), else the one the stock
+    // firmware saved (read only). Values are never logged.
+    if (!LoadBlob(kLatKey, latitude_) || !LoadBlob(kLonKey, longitude_)) {
+        Settings location("weather", false);
+        latitude_ = location.GetString("latitude");
+        longitude_ = location.GetString("longitude");
+    }
     std::string cached;
     if (LoadBlob(kWeatherKey, cached)) {
         std::lock_guard<std::mutex> lock(weather_mutex_);
@@ -203,11 +212,47 @@ bool KidPlatform::GetWeather(kid::Weather& out) {
 }
 
 bool KidPlatform::HasWeatherLocation() {
+    std::lock_guard<std::mutex> lock(weather_mutex_);
     return !kid::OpenMeteoUrl(latitude_, longitude_).empty();
 }
 
+void KidPlatform::GetWeatherLocation(std::string& latitude, std::string& longitude) {
+    std::lock_guard<std::mutex> lock(weather_mutex_);
+    latitude = latitude_;
+    longitude = longitude_;
+}
+
+bool KidPlatform::SetWeatherLocation(const std::string& latitude, const std::string& longitude) {
+    if (kid::OpenMeteoUrl(latitude, longitude).empty()) return false;
+    if (!SaveBlob(kLatKey, latitude) || !SaveBlob(kLonKey, longitude)) return false;
+    std::lock_guard<std::mutex> lock(weather_mutex_);
+    latitude_ = latitude;
+    longitude_ = longitude;
+    weather_.fetched_at = 0;  // refresh at the next chance
+    return true;
+}
+
+bool KidPlatform::StartParentPortal(ParentPortalInfo& out) {
+    if (!portal_) portal_ = std::make_unique<ParentPortal>(*this);
+    parent_mode_ = true;
+    if (!portal_->Start(out)) {
+        parent_mode_ = false;
+        return false;
+    }
+    return true;
+}
+
+void KidPlatform::StopParentPortal() {
+    if (!portal_) return;
+    portal_->Stop([this]() { parent_mode_ = false; });
+}
+
 bool KidPlatform::FetchWeather() {
-    const std::string url = kid::OpenMeteoUrl(latitude_, longitude_);
+    std::string url;
+    {
+        std::lock_guard<std::mutex> lock(weather_mutex_);
+        url = kid::OpenMeteoUrl(latitude_, longitude_);
+    }
     if (url.empty()) return false;
     auto http = Board::GetInstance().GetNetwork()->CreateHttp(3);
     http->SetTimeout(10000);

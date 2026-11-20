@@ -3,12 +3,19 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 
 #include "kid/platform.h"
 
+class ParentPortal;
+
 class KidPlatform : public kid::Platform {
+public:
+    KidPlatform();
+    ~KidPlatform() override;
+
 public:
     // Vietnam: UTC+7, no DST.
     static constexpr int kUtcOffsetSeconds = 7 * 3600;
@@ -30,6 +37,12 @@ public:
     void Interrupt() override;
     bool GetWeather(kid::Weather& out) override;
     bool HasWeatherLocation() override;
+    void GetWeatherLocation(std::string& latitude, std::string& longitude) override;
+    bool SetWeatherLocation(const std::string& latitude, const std::string& longitude) override;
+    bool StartParentPortal(ParentPortalInfo& out) override;
+    void StopParentPortal() override;
+    // True from StartParentPortal until home Wi-Fi is back.
+    bool ParentModeActive() const { return parent_mode_; }
     bool LoadBlob(const char* key, std::string& out) override;
     bool SaveBlob(const char* key, const std::string& data) override;
 
@@ -52,6 +65,9 @@ private:
     std::mutex weather_mutex_;
     kid::Weather weather_;
     std::string latitude_, longitude_;
+
+    std::unique_ptr<class ParentPortal> portal_;
+    volatile bool parent_mode_ = false;
 
     static void WeatherTask(void* arg);
     bool FetchWeather();
