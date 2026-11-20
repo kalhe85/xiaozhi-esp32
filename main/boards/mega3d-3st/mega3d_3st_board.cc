@@ -11,6 +11,8 @@
 #include "power_save_timer.h"
 #include "adc_battery_monitor.h"
 #include "assets/lang_config.h"
+#include "kid_display.h"
+#include "kid_platform.h"
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
@@ -22,6 +24,10 @@
 #include <esp_lcd_touch_cst816s.h>
 #include <esp_lvgl_port.h>
 #include <lvgl.h>
+#include <ssid_manager.h>
+#include <wifi_manager.h>
+#include <cstdlib>
+#include <ctime>
 
 #define TAG "Mega3d3st"
 
@@ -67,7 +73,11 @@ private:
     Button main_button_;
     Button volume_up_button_;
     Button volume_down_button_;
-    Display* display_ = nullptr;
+    KidDisplay* display_ = nullptr;
+    KidPlatform kid_platform_;
+    // Only open the Wi-Fi setup hotspot when someone asked for it (settings
+    // menu); otherwise the device stays offline on the launcher.
+    bool wifi_setup_requested_ = false;
     PowerSaveTimer* power_save_timer_ = nullptr;
     AdcBatteryMonitor* battery_monitor_ = nullptr;
 
@@ -153,8 +163,8 @@ private:
         ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y));
         ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, DISPLAY_INVERT_COLOR));
 
-        display_ = new SpiLcdDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X,
-                                     DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+        display_ = new KidDisplay(panel_io, panel, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y,
+                                  DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY, &kid_platform_);
     }
 
     void InitializeTouch() {
@@ -205,14 +215,15 @@ private:
     }
 
     void InitializeButtons() {
+        // Main button: talk to the chatbot when it is reachable; otherwise go home.
         main_button_.OnClick([this]() {
             power_save_timer_->WakeUp();
-            auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting) {
-                EnterWifiConfigMode();
-                return;
+            if (kid_platform_.IsOnline()) {
+                display_->ShowChatScreen();
+                Application::GetInstance().ToggleChatState();
+            } else {
+                display_->ShowLauncher();
             }
-            app.ToggleChatState();
         });
 
         volume_up_button_.OnClick([this]() { ChangeVolume(10); });
@@ -230,11 +241,38 @@ private:
         });
     }
 
+protected:
+    // Called by WifiBoard when there is no saved network or the connection
+    // timed out. Stay on the launcher and keep trying in the background
+    // instead of blocking the device on the setup hotspot.
+    void StartWifiConfigMode() override {
+        if (wifi_setup_requested_) {
+            WifiBoard::StartWifiConfigMode();
+            return;
+        }
+        in_config_mode_ = false;
+        if (!SsidManager::GetInstance().GetSsidList().empty()) {
+            ESP_LOGW(TAG, "Wi-Fi not reachable, staying offline and retrying");
+            WifiManager::GetInstance().StartStation();
+        } else {
+            ESP_LOGW(TAG, "No saved Wi-Fi, staying offline");
+        }
+    }
+
 public:
+    // Opens the stock Wi-Fi setup hotspot (from the kid settings screen).
+    void OpenWifiSetup() {
+        wifi_setup_requested_ = true;
+        EnterWifiConfigMode();
+    }
+
     Mega3d3stBoard()
         : main_button_(MAIN_BUTTON_GPIO, true),
           volume_up_button_(VOLUME_UP_BUTTON_GPIO),
           volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
+        // time() is kept in UTC (CONFIG_SYSTEM_TIME_IS_UTC); local time is ICT.
+        setenv("TZ", "ICT-7", 1);
+        tzset();
         InitializeBattery();
         InitializePowerSaveTimer();
         InitializeI2c();

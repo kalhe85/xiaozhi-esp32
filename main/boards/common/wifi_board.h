@@ -27,9 +27,10 @@ protected:
     void TryWifiConnect();
 
     /**
-     * Enter WiFi configuration mode
+     * Enter WiFi configuration mode. Virtual so a board can stay offline
+     * instead of opening the configuration hotspot.
      */
-    void StartWifiConfigMode();
+    virtual void StartWifiConfigMode();
 
     /**
      * WiFi connection timeout callback

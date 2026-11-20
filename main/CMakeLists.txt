@@ -1172,6 +1172,11 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 set(MAIN_PRIV_REQUIRES_EXTRA "")
+# Kid apps from the parent repo (added via EXTRA_COMPONENT_DIRS). Checked by
+# path because Kconfig values are not available during requirement expansion.
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../../components/kid_apps/CMakeLists.txt")
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA kid_apps)
+endif()
 if(CONFIG_XIAOZHI_NETWORK_ETHERNET AND CONFIG_XIAOZHI_ETH_PHY_IP101)
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA espressif__ip101)
 endif()

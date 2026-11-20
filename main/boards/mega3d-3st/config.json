@@ -5,7 +5,10 @@
         {
             "name": "mega3d-3st",
             "sdkconfig_append": [
-                "CONFIG_USE_DEVICE_AEC=y"
+                "CONFIG_USE_DEVICE_AEC=y",
+                "CONFIG_SYSTEM_TIME_IS_UTC=y",
+                "CONFIG_LV_USE_TINY_TTF=y",
+                "CONFIG_LV_FONT_MONTSERRAT_32=y"
             ]
         }
     ]

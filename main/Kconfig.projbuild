@@ -1,5 +1,12 @@
 menu "Xiaozhi Assistant"
 
+config SYSTEM_TIME_IS_UTC
+    bool "Keep system time in UTC"
+    default n
+    help
+        Ignore the server's timezone_offset when setting the clock from the OTA
+        response, so time() stays UTC and local time comes from the TZ variable.
+
 config OTA_URL
     string "Default OTA URL"
     default "https://api.tenclass.net/xiaozhi/ota/"
