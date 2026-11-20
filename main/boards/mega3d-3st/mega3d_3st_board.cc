@@ -273,6 +273,7 @@ public:
         // time() is kept in UTC (CONFIG_SYSTEM_TIME_IS_UTC); local time is ICT.
         setenv("TZ", "ICT-7", 1);
         tzset();
+        kid_platform_.Initialize();
         InitializeBattery();
         InitializePowerSaveTimer();
         InitializeI2c();

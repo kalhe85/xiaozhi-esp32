@@ -1,0 +1,11 @@
+# MEGA3D 3ST: upstream v2/16m.csv with a separate NVS partition for the kid
+# apps carved from the end of assets. nvs/otadata/phy_init/ota_* are unchanged
+# (nvs at 0x9000 holds the device identity and must never move).
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x4000,
+otadata,  data, ota,     0xd000,   0x2000,
+phy_init, data, phy,     0xf000,   0x1000,
+ota_0,    app,  ota_0,   0x20000,  0x3f0000,
+ota_1,    app,  ota_1,   ,         0x3f0000,
+assets,   data, spiffs,  0x800000, 0x7f0000,
+kidnvs,   data, nvs,     0xff0000, 0x10000,
